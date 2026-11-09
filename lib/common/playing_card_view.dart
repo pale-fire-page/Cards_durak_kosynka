@@ -42,8 +42,9 @@ class PlayingCardView extends StatelessWidget {
       );
     }
     final color = card.isRed ? const Color(0xFFC62828) : const Color(0xFF111111);
-    // Масть заметно меньше номинала, одинаковая в обоих углах.
+    // Угловая масть заметно меньше номинала; нижняя — покрупнее.
     final suitSize = width * 0.22;
+    final bottomSuitSize = width * 0.31;
     return Container(
       width: width,
       height: h,
@@ -70,7 +71,7 @@ class PlayingCardView extends StatelessWidget {
         Positioned(
           right: width * 0.08,
           bottom: width * 0.08,
-          child: SuitIcon(suit: card.suit, size: suitSize, color: color),
+          child: SuitIcon(suit: card.suit, size: bottomSuitSize, color: color),
         ),
       ]),
     );
