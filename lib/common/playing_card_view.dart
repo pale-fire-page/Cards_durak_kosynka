@@ -42,7 +42,8 @@ class PlayingCardView extends StatelessWidget {
       );
     }
     final color = card.isRed ? const Color(0xFFC62828) : const Color(0xFF111111);
-    final suitSize = width * 0.28;
+    // Масть заметно меньше номинала, одинаковая в обоих углах.
+    final suitSize = width * 0.22;
     return Container(
       width: width,
       height: h,
