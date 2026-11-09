@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Дурак — прототип</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #15202b; font-family: system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+  #app { max-width: 480px; height: 100%; margin: 0 auto; background: #1e6b3a;
+    display: flex; flex-direction: column; position: relative; overflow: hidden; }
+  #bar { display: flex; gap: 8px; align-items: center; padding: 6px 8px;
+    background: rgba(0,0,0,.25); color: #fff; font-size: 14px; }
+  #bar .info { flex: 1; }
+  button { font: inherit; padding: 7px 12px; border: 0; border-radius: 6px;
+    background: #fff; color: #15202b; cursor: pointer; }
+  button.main { background: #ffd54f; font-weight: 600; }
+  #bots { display: flex; gap: 6px; padding: 8px 6px 4px; }
+  .bot { flex: 1; border-radius: 8px; padding: 4px 6px 6px; color: #fff; font-size: 13px;
+    background: rgba(0,0,0,.18); border: 2px solid transparent; position: relative; min-width: 0; }
+  .bot.acting { border-color: #ffd54f; }
+  .bot.out { opacity: .5; }
+  .bot .nm { display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+  .bot .role { color: #ffd54f; font-size: 11px; }
+  .bot .fan { position: relative; height: 34px; margin-top: 4px; }
+  .bot .say { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%);
+    background: #fff; color: #15202b; border-radius: 10px; padding: 1px 8px; font-size: 12px;
+    font-weight: 600; white-space: nowrap; z-index: 5; }
+  #mid { flex: 1; position: relative; }
+  #status { color: #fff; font-size: 14px; text-align: center; padding: 4px 8px; min-height: 26px; }
+  #status b { color: #ffd54f; }
+  #actions { display: flex; gap: 8px; justify-content: center; min-height: 44px; padding: 2px 8px 6px; }
+  #hand { position: relative; flex: none; }
+  .card { position: absolute; border-radius: 6px; background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.45); font-weight: 700; }
+  .card.red { color: #c62828; } .card.black { color: #111; }
+  .card .c { position: absolute; display: flex; align-items: center; line-height: 1; letter-spacing: -1px; }
+  .card .m { position: absolute; }
+  .card svg { display: block; fill: currentColor; }
+  .card.back { background: #2a4fa0; border: 2px solid #fff; }
+  .card.back::after { content: ''; position: absolute; inset: 8%; border: 1.5px solid #6f8fd6; border-radius: 4px; }
+  .card.dim { filter: brightness(.6); }
+  .card.sel { box-shadow: 0 0 0 3px #ffd54f, 0 6px 12px rgba(0,0,0,.5); }
+  .card.target { box-shadow: 0 0 0 3px #ffd54f; }
+  .lbl { position: absolute; color: rgba(255,255,255,.75); font-size: 12px; text-align: center; }
+  #overlay { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 2000; }
+  #overlay .box { background: #fff; border-radius: 10px; padding: 20px; text-align: center; min-width: 240px; }
+  #overlay h2 { margin: 0 0 8px; }
+  #overlay button { background: #1e6b3a; color: #fff; margin-top: 8px; }
+  #overlay .opt { display: flex; gap: 6px; justify-content: center; margin: 6px 0 12px; }
+  #overlay .opt button { background: #e0e0e0; color: #15202b; margin: 0; }
+  #overlay .opt button.on { background: #1e6b3a; color: #fff; }
+  #overlay .muted { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <div class="info" id="info"></div>
+    <button id="setBtn">Настройки</button>
+    <button id="newBtn">Новая игра</button>
+  </div>
+  <div id="bots"></div>
+  <div id="mid"></div>
+  <div id="status"></div>
+  <div id="actions"></div>
+  <div id="hand"></div>
+  <div id="overlay"><div class="box" id="ovBox"></div></div>
+</div>
+<script>
+// ---------- Карты ----------
+// Масти: 0 ♠, 1 ♥, 2 ♦, 3 ♣ (как во Flutter-версии). Достоинства 6..14.
+const RANK = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+const rankLabel = r => RANK[r] || String(r);
+const isRed = c => c.s === 1 || c.s === 2;
+const SUIT_SVG = [
+  '<path d="M50 4C20 30 5 45 5 60C5 74 15 82 28 82C36 82 43 78 47 72L40 98L60 98L53 72C57 78 64 82 72 82C85 82 95 74 95 60C95 45 80 30 50 4Z"/>',
+  '<path d="M50 92C18 66 4 48 4 31C4 16 15 6 29 6C39 6 46 12 50 21C54 12 61 6 71 6C85 6 96 16 96 31C96 48 82 66 50 92Z"/>',
+  '<path d="M50 2L86 50L50 98L14 50Z"/>',
+  '<circle cx="50" cy="27" r="20"/><circle cx="27" cy="58" r="20"/><circle cx="73" cy="58" r="20"/><path d="M50 50L60 98L40 98Z"/>',
+];
+const suitSvg = (s, size) => `<svg viewBox="0 0 100 100" width="${size}" height="${size}">${SUIT_SVG[s]}</svg>`;
+const same = (a, b) => a.s === b.s && a.r === b.r;
+
+// ---------- Настройки и статистика ----------
+function load(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+function save(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+const cfg = { opp: +load('durak.opp', 2), mode: load('durak.mode', 'podkidnoy') };
+if (![1, 2, 3].includes(cfg.opp)) cfg.opp = 2;
+const stats = { games: +load('durak.games', 0), lost: +load('durak.lost', 0) };
+
+// ---------- Состояние партии ----------
+let G;
+const P = i => G.players[i];
+
+function newGame() {
+  const deck = [];
+  for (let s = 0; s < 4; s++) for (let r = 6; r <= 14; r++) deck.push({ s, r });
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  const players = [{ name: 'Вы', human: true }];
+  for (let i = 1; i <= cfg.opp; i++) players.push({ name: cfg.opp === 1 ? 'Бот' : 'Бот ' + i, human: false });
+  players.forEach(p => { p.hand = []; p.out = false; p.say = ''; });
+  // Колода: берём с конца, deck[0] — нижняя открытая карта, она козырь.
+  for (let k = 0; k < 6; k++) players.forEach(p => p.hand.push(deck.pop()));
+  G = { players, talon: deck, trumpCard: deck[0], trump: deck[0].s, discard: [], table: [],
+    attacker: 0, defender: 1, taking: false, passed: [], firstBout: true, over: false, sel: null,
+    note: '', mode: cfg.mode, finishOrder: [] };
+  // Первым ходит обладатель младшего козыря.
+  let best = null;
+  players.forEach((p, i) => p.hand.forEach(c => {
+    if (c.s === G.trump && (!best || c.r < best.c.r)) best = { i, c };
+  }));
+  G.attacker = best ? best.i : Math.floor(Math.random() * players.length);
+  G.defender = nextActive(G.attacker);
+  G.note = best ? `Младший козырь ${rankLabel(best.c.r)}${'♠♥♦♣'[best.c.s]} у ${best.i === 0 ? 'вас' : P(best.i).name}` : '';
+  document.getElementById('overlay').style.display = 'none';
+  tick();
+}
+
+function nextActive(i) {
+  const n = G.players.length;
+  for (let k = 1; k <= n; k++) { const j = (i + k) % n; if (!P(j).out) return j; }
+  return i;
+}
+const beats = (a, d) => (d.s === a.s && d.r > a.r) || (d.s === G.trump && a.s !== G.trump);
+const undefended = () => G.table.map((p, i) => i).filter(i => !G.table[i].d);
+const limit = () => G.firstBout ? 5 : 6;
+const tableRanks = () => new Set(G.table.flatMap(p => p.d ? [p.a.r, p.d.r] : [p.a.r]));
+
+function canThrow(c) {
+  if (!G.table.length || !tableRanks().has(c.r)) return false;
+  return G.table.length < limit() && undefended().length < P(G.defender).hand.length;
+}
+function canTransfer(c) {
+  if (G.mode !== 'perevodnoy' || G.taking || !G.table.length || G.table.some(p => p.d)) return false;
+  if (c.r !== G.table[0].a.r || G.table.length + 1 > limit()) return false;
+  const nd = nextActive(G.defender);
+  return nd !== G.defender && P(nd).hand.length >= G.table.length + 1;
+}
+// Все, кто может подкидывать: начиная с главного атакующего по кругу, кроме отбивающегося.
+function attackers() {
+  const res = [], n = G.players.length;
+  for (let k = 0; k < n; k++) {
+    const j = (G.attacker + k) % n;
+    if (j !== G.defender && !P(j).out) res.push(j);
+  }
+  return res;
+}
+
+// Кто сейчас должен действовать.
+function whoActs() {
+  if (G.over) return null;
+  if (!G.table.length) return { who: G.attacker, kind: 'attack' };
+  if (undefended().length && !G.taking) return { who: G.defender, kind: 'defend' };
+  for (const a of attackers())
+    if (!G.passed.includes(a) && P(a).hand.some(canThrow)) return { who: a, kind: 'throw' };
+  return { kind: 'end' };
+}
+
+// ---------- Действия ----------
+function takeFromHand(i, c) { const h = P(i).hand; h.splice(h.findIndex(x => same(x, c)), 1); }
+function attack(i, c) { takeFromHand(i, c); G.table.push({ a: c }); G.passed = []; P(i).say = ''; }
+function defend(c, idx) { takeFromHand(G.defender, c); G.table[idx].d = c; G.passed = []; }
+function transfer(c) {
+  takeFromHand(G.defender, c); G.table.push({ a: c });
+  P(G.defender).say = 'Перевод';
+  G.attacker = G.defender; G.defender = nextActive(G.defender); G.passed = [];
+}
+function take() { G.taking = true; G.passed = []; P(G.defender).say = 'Беру'; }
+function pass(i) {
+  G.passed.push(i);
+  P(i).say = G.taking ? 'Хватит' : (i === G.attacker ? 'Бито' : 'Пас');
+}
+
+function endBout() {
+  const cards = G.table.flatMap(p => p.d ? [p.a, p.d] : [p.a]);
+  const defender = G.defender;
+  let nextAttacker;
+  if (G.taking) {
+    P(defender).hand.push(...cards);
+    G.note = `${defender === 0 ? 'Вы взяли' : P(defender).name + ' взял'} ${cards.length} ${plural(cards.length)}`;
+    nextAttacker = nextActive(defender);
+  } else {
+    G.discard.push(...cards);
+    G.note = defender === 0 ? 'Вы отбились' : P(defender).name + ' отбился';
+    nextAttacker = defender;
+  }
+  // Добор: сначала главный атакующий, потом остальные по кругу, отбивающийся последним.
+  const order = [...attackers(), defender];
+  for (const i of order) while (P(i).hand.length < 6 && G.talon.length) P(i).hand.push(G.talon.pop());
+  G.table = []; G.taking = false; G.passed = []; G.firstBout = false; G.sel = null;
+  G.players.forEach(p => p.say = '');
+  if (!G.talon.length) G.players.forEach((p, i) => {
+    if (!p.out && !p.hand.length) { p.out = true; G.finishOrder.push(i); }
+  });
+  const active = G.players.map((p, i) => i).filter(i => !P(i).out);
+  if (active.length <= 1) { finish(active.length ? active[0] : null); return; }
+  G.attacker = P(nextAttacker).out ? nextActive(nextAttacker) : nextAttacker;
+  G.defender = nextActive(G.attacker);
+}
+const plural = n => n % 10 === 1 && n % 100 !== 11 ? 'карту' : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'карты' : 'карт');
+
+function finish(durak) {
+  G.over = true; G.durak = durak;
+  stats.games++; if (durak === 0) stats.lost++;
+  save('durak.games', stats.games); save('durak.lost', stats.lost);
+  render();
+  setTimeout(showResult, 600);
+}
+
+// ---------- Бот ----------
+const cost = c => c.r + (c.s === G.trump ? 20 : 0);
+const byCost = (a, b) => cost(a) - cost(b);
+
+// Карты, которых бот не видел: не у него на руке, не в отбое и не на столе.
+function unseen(i) {
+  const known = [...P(i).hand, ...G.discard, ...G.table.flatMap(p => p.d ? [p.a, p.d] : [p.a])];
+  if (G.talon.length) known.push(G.trumpCard);
+  const res = [];
+  for (let s = 0; s < 4; s++) for (let r = 6; r <= 14; r++)
+    if (!known.some(k => k.s === s && k.r === r)) res.push({ s, r });
+  return res;
+}
+
+function botAttack(i) {
+  const h = [...P(i).hand].sort(byCost);
+  if (!G.talon.length && h.length <= 3) {
+    // Добивание: ходим картой, которую соперникам нечем побить (по памяти), иначе младшей.
+    const u = unseen(i);
+    const threat = c => u.filter(x => beats(c, x)).length;
+    h.sort((a, b) => threat(a) - threat(b) || cost(a) - cost(b));
+  } else {
+    // Пара одного достоинства выгоднее: потом можно подкинуть вторую.
+    const cnt = r => h.filter(c => c.r === r).length;
+    h.sort((a, b) => (cost(a) - 2 * (cnt(a.r) - 1)) - (cost(b) - 2 * (cnt(b.r) - 1)));
+  }
+  return h[0];
+}
+
+function botThrow(i) {
+  let cand = P(i).hand.filter(canThrow).sort(byCost);
+  if (G.talon.length) cand = cand.filter(c => c.s !== G.trump && c.r <= (G.taking ? 10 : 12));
+  else if (cand.some(c => c.s !== G.trump)) cand = cand.filter(c => c.s !== G.trump);
+  return cand[0] || null;
+}
+
+// План отбоя: каждой неотбитой карте подбираем самую дешёвую бьющую.
+function defensePlan(i) {
+  const pool = [...P(i).hand].sort(byCost), plan = [];
+  const idxs = undefended().sort((a, b) => cost(G.table[b].a) - cost(G.table[a].a));
+  for (const idx of idxs) {
+    const k = pool.findIndex(c => beats(G.table[idx].a, c));
+    if (k < 0) return null;
+    plan.push({ idx, c: pool[k] }); pool.splice(k, 1);
+  }
+  return plan;
+}
+
+function botDefend(i) {
+  const tr = P(i).hand.filter(canTransfer).sort(byCost)[0];
+  if (tr && (tr.s !== G.trump || !G.talon.length)) return { act: 'transfer', c: tr };
+  const plan = defensePlan(i);
+  if (!plan) return { act: 'take' };
+  // Пока колода большая, не отдаём старшие козыри за мелочь.
+  const expensive = plan.some(p => p.c.s === G.trump && p.c.r >= 12 && G.table[p.idx].a.s !== G.trump);
+  if (expensive && G.talon.length >= 8 && G.table.length <= 2) return { act: 'take' };
+  return { act: 'defend', ...plan[0] };
+}
+
+function botAct(a) {
+  const i = a.who;
+  if (a.kind === 'attack') attack(i, botAttack(i));
+  else if (a.kind === 'throw') { const c = botThrow(i); c ? attack(i, c) : pass(i); }
+  else if (a.kind === 'defend') {
+    const d = botDefend(i);
+    if (d.act === 'transfer') transfer(d.c);
+    else if (d.act === 'take') take();
+    else defend(d.c, d.idx);
+  }
+}
+
+// ---------- Ход игры ----------
+let timer = null;
+function tick() {
+  clearTimeout(timer);
+  render();
+  if (G.over) return;
+  const a = whoActs();
+  const fast = P(0).out;
+  if (a.kind === 'end') { timer = setTimeout(() => { endBout(); tick(); }, fast ? 400 : 900); return; }
+  if (P(a.who).human) {
+    // Подкидывать нечего или нельзя — пропускаем ход сами.
+    if (a.kind === 'throw' && !P(0).hand.some(canThrow)) { G.passed.push(0); tick(); }
+    return;
+  }
+  timer = setTimeout(() => { botAct(a); tick(); }, fast ? 250 : 700);
+}
+
+// ---------- Действия человека ----------
+function onHand(c) {
+  const a = whoActs();
+  if (!a || a.who !== 0) return;
+  if (a.kind === 'attack') { attack(0, c); tick(); return; }
+  if (a.kind === 'throw') { if (canThrow(c)) { attack(0, c); tick(); } return; }
+  if (a.kind === 'defend') {
+    const targets = undefended().filter(i => beats(G.table[i].a, c)), tr = canTransfer(c);
+    if (targets.length === 1 && !tr) { defend(c, targets[0]); tick(); return; }
+    if (!targets.length && tr) { transfer(c); tick(); return; }
+    G.sel = (G.sel && same(G.sel, c)) || (!targets.length && !tr) ? null : c;
+    render();
+  }
+}
+function onTable(idx) {
+  const a = whoActs();
+  if (!a || a.who !== 0 || a.kind !== 'defend' || !G.sel) return;
+  const p = G.table[idx];
+  if (!p.d && beats(p.a, G.sel)) { const c = G.sel; G.sel = null; defend(c, idx); tick(); }
+}
+
+// ---------- Отрисовка ----------
+function cardEl(c, x, y, w, opts = {}) {
+  const d = document.createElement('div');
+  const h = Math.round(w * 1.4);
+  d.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:${w * .1}px;` +
+    (opts.rot ? `transform:rotate(${opts.rot}deg);` : '') + (opts.z ? `z-index:${opts.z};` : '');
+  if (!c) { d.className = 'card back'; return d; }
+  d.className = 'card ' + (isRed(c) ? 'red' : 'black') + (opts.cls ? ' ' + opts.cls : '');
+  d.innerHTML =
+    `<span class="c" style="left:${w * .07}px;top:${w * .05}px;font-size:${w * .36}px;gap:${w * .03}px">` +
+    `${rankLabel(c.r)}${suitSvg(c.s, w * .22)}</span>` +
+    `<span class="m" style="right:${w * .08}px;bottom:${w * .08}px">${suitSvg(c.s, w * .36)}</span>`;
+  return d;
+}
+
+function sortHand(h) {
+  const order = s => s === G.trump ? 9 : [0, 1, 3, 2].indexOf(s); // чередуем цвета, козыри справа
+  return [...h].sort((a, b) => order(a.s) - order(b.s) || a.r - b.r);
+}
+
+function render() {
+  const a = G.over ? null : whoActs();
+  document.getElementById('info').textContent =
+    (G.mode === 'perevodnoy' ? 'Переводной' : 'Подкидной') + ' · партий ' + stats.games + ', в дураках ' + stats.lost;
+
+  // Боты
+  const bots = document.getElementById('bots');
+  bots.innerHTML = '';
+  G.players.forEach((p, i) => {
+    if (p.human) return;
+    const b = document.createElement('div');
+    b.className = 'bot' + (a && a.who === i ? ' acting' : '') + (p.out ? ' out' : '');
+    const role = p.out ? 'вышел' : i === G.defender ? 'отбивается' : i === G.attacker ? 'ходит' : '';
+    b.innerHTML = `<div class="nm"><span>${p.name} · ${p.hand.length}</span><span class="role">${role}</span></div><div class="fan"></div>` +
+      (p.say ? `<div class="say">${p.say}</div>` : '');
+    bots.appendChild(b);
+    const fan = b.querySelector('.fan'), n = Math.min(p.hand.length, 12), fw = fan.clientWidth || 80;
+    const step = n > 1 ? Math.min(12, (fw - 24) / (n - 1)) : 0;
+    for (let k = 0; k < n; k++) fan.appendChild(cardEl(null, k * step, 0, 24));
+  });
+
+  // Стол
+  const mid = document.getElementById('mid');
+  mid.innerHTML = '';
+  const W = mid.clientWidth, H = mid.clientHeight;
+  const tw = Math.min(64, Math.floor(W / 6.2)), th = Math.round(tw * 1.4);
+  // Колода и козырь
+  if (G.talon.length) {
+    // Козырь лежит открытым под колодой, видна его левая половина с номиналом.
+    mid.appendChild(cardEl(G.trumpCard, 8, 8, tw));
+    if (G.talon.length > 1) mid.appendChild(cardEl(null, 8 + tw * .55, 8, tw));
+  }
+  const tl = document.createElement('div');
+  tl.className = 'lbl'; tl.style.cssText = `left:8px;top:${th + 14}px;width:${tw * 1.55}px`;
+  tl.innerHTML = G.talon.length ? `колода ${G.talon.length}` :
+    `козырь <span style="color:${isRed({ s: G.trump }) ? '#ff8a80' : '#fff'}">${'♠♥♦♣'[G.trump]}</span>`;
+  mid.appendChild(tl);
+  const dl = document.createElement('div');
+  dl.className = 'lbl'; dl.style.cssText = `right:8px;top:8px`;
+  dl.textContent = G.discard.length ? 'бито ' + G.discard.length : '';
+  mid.appendChild(dl);
+  // Пары на столе: до 3 в ряд
+  const n = G.table.length, cols = Math.min(3, Math.max(1, n)), rows = Math.ceil(n / 3) || 1;
+  const pw = tw * 1.3, ph = th * 1.28, gx = tw * .25;
+  const top0 = Math.max(th * 1.55 + 10, (H - rows * ph) / 2);
+  const targets = G.sel ? undefended().filter(i => beats(G.table[i].a, G.sel)) : [];
+  G.table.forEach((p, i) => {
+    const r = Math.floor(i / 3), cIn = i % 3, rowCount = Math.min(3, n - r * 3);
+    const x = (W - rowCount * pw - (rowCount - 1) * gx) / 2 + cIn * (pw + gx), y = top0 + r * ph;
+    const ae = cardEl(p.a, x, y, tw, { cls: targets.includes(i) ? 'target' : '' });
+    ae.onclick = () => onTable(i);
+    mid.appendChild(ae);
+    if (p.d) mid.appendChild(cardEl(p.d, x + tw * .3, y + th * .25, tw, { z: 2 }));
+  });
+
+  // Подсказка
+  const st = document.getElementById('status');
+  let msg = G.note;
+  if (a && a.who === 0) msg = a.kind === 'attack' ? '<b>Ваш ход</b>: выберите карту' :
+    a.kind === 'throw' ? (G.taking ? '<b>Соперник берёт</b>: можно подкинуть вдогонку' : '<b>Можно подкинуть</b>') :
+    '<b>Отбивайтесь</b>' + (G.mode === 'perevodnoy' && P(0).hand.some(canTransfer) ? ', переводите' : '') + ' или берите';
+  else if (a && a.kind !== 'end') msg = (a.kind === 'defend' ? `Отбивается ${P(a.who).name}` :
+    `Ходит ${P(a.who).name}`) + (G.defender === 0 && a.kind !== 'defend' ? ' · вы отбиваетесь' : '');
+  if (P(0).out && !G.over) msg = 'Вы вышли! Боты доигрывают…';
+  st.innerHTML = msg || '&nbsp;';
+
+  // Кнопки
+  const act = document.getElementById('actions');
+  act.innerHTML = '';
+  const btn = (t, f) => { const b = document.createElement('button'); b.className = 'main'; b.textContent = t; b.onclick = f; act.appendChild(b); };
+  if (a && a.who === 0) {
+    if (a.kind === 'throw') btn(G.taking ? 'Хватит' : (G.attacker === 0 ? 'Бито' : 'Пас'), () => { pass(0); tick(); });
+    if (a.kind === 'defend') {
+      if (G.sel && canTransfer(G.sel)) btn('Перевести', () => { const c = G.sel; G.sel = null; transfer(c); tick(); });
+      btn('Беру', () => { G.sel = null; take(); tick(); });
+    }
+  }
+
+  // Рука
+  const hand = document.getElementById('hand');
+  hand.innerHTML = '';
+  const hw = Math.min(72, Math.floor(W / 5.6)), hh = Math.round(hw * 1.4);
+  hand.style.height = hh + 26 + 'px';
+  const cards = sortHand(P(0).hand), m = cards.length;
+  const step = m > 1 ? Math.min(hw + 4, (W - 16 - hw) / (m - 1)) : 0;
+  const x0 = (W - (hw + step * (m - 1))) / 2;
+  cards.forEach((c, k) => {
+    let playable = true;
+    if (a && a.who === 0) {
+      if (a.kind === 'throw') playable = canThrow(c);
+      if (a.kind === 'defend') playable = undefended().some(i => beats(G.table[i].a, c)) || canTransfer(c);
+    }
+    const isSel = G.sel && same(G.sel, c);
+    const e = cardEl(c, x0 + k * step, isSel ? 2 : 18, hw,
+      { cls: (isSel ? 'sel' : '') + (a && a.who === 0 && !playable ? ' dim' : '') });
+    e.onclick = () => onHand(c);
+    hand.appendChild(e);
+  });
+}
+
+// ---------- Окна ----------
+const ov = document.getElementById('overlay'), ovBox = document.getElementById('ovBox');
+function showResult() {
+  const d = G.durak;
+  const title = d === null ? 'Ничья' : d === 0 ? 'Вы дурак!' : 'Вы не дурак!';
+  const text = d === null ? 'Все вышли одновременно.' : d === 0 ? 'Карты остались только у вас.' : `Дурак — ${P(d).name}.`;
+  ovBox.innerHTML = `<h2>${title}</h2><p>${text}</p><p class="muted">Партий ${stats.games}, в дураках ${stats.lost}</p><button id="again">Ещё партию</button>`;
+  ov.style.display = 'flex';
+  document.getElementById('again').onclick = newGame;
+}
+function showSettings() {
+  const draft = { ...cfg };
+  const draw = () => {
+    ovBox.innerHTML = `<h2>Настройки</h2>
+      <div class="muted">Противников</div>
+      <div class="opt">${[1, 2, 3].map(n => `<button data-o="${n}" class="${draft.opp === n ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="muted">Правила</div>
+      <div class="opt"><button data-m="podkidnoy" class="${draft.mode === 'podkidnoy' ? 'on' : ''}">Подкидной</button>
+        <button data-m="perevodnoy" class="${draft.mode === 'perevodnoy' ? 'on' : ''}">Переводной</button></div>
+      <button id="apply">Начать новую партию</button> <button id="cancel" style="background:#e0e0e0;color:#15202b">Отмена</button>`;
+    ovBox.querySelectorAll('[data-o]').forEach(b => b.onclick = () => { draft.opp = +b.dataset.o; draw(); });
+    ovBox.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { draft.mode = b.dataset.m; draw(); });
+    document.getElementById('apply').onclick = () => {
+      Object.assign(cfg, draft); save('durak.opp', cfg.opp); save('durak.mode', cfg.mode); newGame();
+    };
+    document.getElementById('cancel').onclick = () => { ov.style.display = G.over ? 'flex' : 'none'; if (G.over) showResult(); };
+  };
+  draw();
+  ov.style.display = 'flex';
+}
+
+document.getElementById('newBtn').onclick = () => {
+  if (G.over || P(0).out) { newGame(); return; }
+  ovBox.innerHTML = `<h2>Новая партия?</h2><p>Текущая партия не засчитается.</p>
+    <button id="yes">Начать заново</button> <button id="no" style="background:#e0e0e0;color:#15202b">Продолжить</button>`;
+  ov.style.display = 'flex';
+  document.getElementById('yes').onclick = newGame;
+  document.getElementById('no').onclick = () => { ov.style.display = 'none'; };
+};
+document.getElementById('setBtn').onclick = showSettings;
+window.addEventListener('resize', () => G && render());
+newGame();
+</script>
+</body>
+</html>
