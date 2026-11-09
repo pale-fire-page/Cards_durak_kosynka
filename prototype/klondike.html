@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Косынка — прототип</title>
+<style>
+  :root { --cw: 60px; --ch: 84px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #15202b; font-family: system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none; touch-action: none; }
+  #app { max-width: 480px; height: 100%; margin: 0 auto; background: #1e6b3a;
+    display: flex; flex-direction: column; position: relative; overflow: hidden; }
+  #bar { display: flex; gap: 8px; align-items: center; padding: 6px 8px;
+    background: rgba(0,0,0,.25); color: #fff; font-size: 14px; }
+  #bar .info { flex: 1; display: flex; gap: 14px; }
+  #bottom { display: flex; gap: 8px; justify-content: center; padding: 8px;
+    background: rgba(0,0,0,.25); }
+  button, select { font: inherit; padding: 7px 12px; border: 0; border-radius: 6px;
+    background: #fff; color: #15202b; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #board { flex: 1; position: relative; }
+  .pile { position: absolute; width: var(--cw); height: var(--ch); border-radius: 6px;
+    border: 2px solid rgba(255,255,255,.3); color: rgba(255,255,255,.35);
+    display: flex; align-items: center; justify-content: center; font-size: calc(var(--cw) * .45); }
+  .card { position: absolute; width: var(--cw); height: var(--ch); border-radius: 6px;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.45); font-weight: 600; }
+  .card.red { color: #c62828; } .card.black { color: #111; }
+  .card .c { position: absolute; left: 4px; top: 3px; font-size: calc(var(--cw) * .36); line-height: 1; letter-spacing: -1px; }
+  .card .m { position: absolute; right: 4px; bottom: 3px; font-size: calc(var(--cw) * .52); line-height: 1; }
+  .card.back { background: repeating-linear-gradient(45deg, #2a4fa0 0 5px, #3561c0 5px 10px);
+    border: 2px solid #fff; }
+  .card.drag { z-index: 1000; box-shadow: 0 6px 14px rgba(0,0,0,.5); }
+  #overlay { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 2000; }
+  #overlay .box { background: #fff; border-radius: 10px; padding: 20px; text-align: center; min-width: 220px; }
+  #overlay h2 { margin: 0 0 8px; }
+  #note { color: #ffd54f; font-size: 12px; padding: 0 8px 4px; background: rgba(0,0,0,.25); }
+  #note:empty { display: none; }
+  #overlay button { background: #1e6b3a; color: #fff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <div class="info"><span id="score">Очки: 0</span><span id="time">0:00</span></div>
+    <select id="draw" title="Сдача">
+      <option value="1">По 1 карте</option>
+      <option value="3">По 3 карты</option>
+    </select>
+  </div>
+  <div id="note"></div>
+  <div id="board"></div>
+  <div id="bottom">
+    <button id="newBtn">Новая игра</button>
+    <button id="undoBtn">Отменить ход</button>
+  </div>
+  <div id="overlay"><div class="box">
+    <h2>Победа!</h2><p id="winText"></p><button id="winNew">Новая игра</button>
+  </div></div>
+</div>
+<script>
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RANKS = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const isRed = c => c.s === 1 || c.s === 2;
+
+let st, history, drawCount, scoring, seconds, started, won;
+
+function load(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }
+function save(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+function newGame() {
+  const deck = [];
+  for (let s = 0; s < 4; s++) for (let r = 1; r <= 13; r++) deck.push({ s, r, up: false });
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  st = { stock: [], waste: [], found: [[], [], [], []], tab: [[], [], [], [], [], [], []], score: 0, recycles: 0 };
+  for (let i = 0; i < 7; i++) for (let j = 0; j <= i; j++) {
+    const c = deck.pop(); c.up = j === i; st.tab[i].push(c);
+  }
+  st.stock = deck;
+  history = []; scoring = true; seconds = 0; started = false; won = false;
+  document.getElementById('overlay').style.display = 'none';
+  render();
+}
+
+const snap = () => JSON.parse(JSON.stringify(st));
+function addScore(n) { if (scoring) st.score = Math.max(0, st.score + n); }
+function begin() { history.push(snap()); started = true; }
+
+function pileArr(p) {
+  if (p.t === 'w') return st.waste;
+  if (p.t === 't') return st.tab[p.i];
+  if (p.t === 'f') return st.found[p.i];
+  return st.stock;
+}
+function canFound(c, i) {
+  const f = st.found[i], top = f[f.length - 1];
+  return top ? top.s === c.s && top.r + 1 === c.r : c.r === 1;
+}
+function canTab(c, i) {
+  const t = st.tab[i], top = t[t.length - 1];
+  return top ? top.up && isRed(top) !== isRed(c) && top.r === c.r + 1 : c.r === 13;
+}
+
+// Попытка хода: карты src[idx..] в dst. Возвращает true, если ход сделан.
+function tryMove(src, idx, dst) {
+  if (won) return false;
+  if (src.t === dst.t && src.i === dst.i) return false;
+  const from = pileArr(src), cards = from.slice(idx), c = cards[0];
+  if (!c || !c.up) return false;
+  if (dst.t === 'f') { if (cards.length !== 1 || !canFound(c, dst.i)) return false; }
+  else if (dst.t === 't') { if (!canTab(c, dst.i)) return false; }
+  else return false;
+  begin();
+  from.splice(idx);
+  pileArr(dst).push(...cards);
+  if (src.t === 'w' && dst.t === 't') addScore(5);
+  if ((src.t === 'w' || src.t === 't') && dst.t === 'f') addScore(10);
+  if (src.t === 'f' && dst.t === 't') addScore(-15);
+  if (src.t === 't' && from.length && !from[from.length - 1].up) { from[from.length - 1].up = true; addScore(5); }
+  checkWin();
+  render();
+  maybeAutoFinish();
+  return true;
+}
+
+// Авторасклад: когда на столе не осталось закрытых карт, всё уходит в дом само.
+let autoRunning = false;
+function maybeAutoFinish() {
+  if (won || autoRunning || st.tab.some(col => col.some(c => !c.up))) return;
+  autoRunning = true;
+  let idle = 0; // шагов подряд без хода в дом
+  const step = () => {
+    if (won) { autoRunning = false; return; }
+    const srcs = [{ t: 'w' }, ...[0, 1, 2, 3, 4, 5, 6].map(i => ({ t: 't', i }))];
+    for (const src of srcs) {
+      const a = pileArr(src), c = a[a.length - 1];
+      if (!c) continue;
+      for (let i = 0; i < 4; i++) if (canFound(c, i)) {
+        a.pop(); st.found[i].push(c); addScore(10); idle = 0;
+        checkWin(); render(); setTimeout(step, 90); return;
+      }
+    }
+    // В дом ничего не идёт: листаем колоду (без штрафа)
+    if (idle > st.stock.length + st.waste.length + 2) { autoRunning = false; return; }
+    idle++;
+    if (st.stock.length) {
+      for (let k = 0; k < drawCount && st.stock.length; k++) { const c = st.stock.pop(); c.up = true; st.waste.push(c); }
+    } else if (st.waste.length) {
+      st.stock = st.waste.reverse().map(c => ({ ...c, up: false })); st.waste = [];
+    }
+    render(); setTimeout(step, 90);
+  };
+  history.push(snap());
+  setTimeout(step, 150);
+}
+
+// Тап по карте: сначала в дом, потом на стол.
+function autoMove(src, idx) {
+  const from = pileArr(src);
+  if (idx === from.length - 1 && src.t !== 'f')
+    for (let i = 0; i < 4; i++) if (tryMove(src, idx, { t: 'f', i })) return;
+  const order = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => (st.tab[a].length ? 0 : 1) - (st.tab[b].length ? 0 : 1));
+  for (const i of order) if (tryMove(src, idx, { t: 't', i })) return;
+}
+
+function clickStock() {
+  if (won) return;
+  if (st.stock.length) {
+    begin();
+    for (let k = 0; k < drawCount && st.stock.length; k++) { const c = st.stock.pop(); c.up = true; st.waste.push(c); }
+  } else if (st.waste.length) {
+    begin();
+    st.stock = st.waste.reverse().map(c => ({ ...c, up: false })); st.waste = [];
+    // Первое пролистывание колоды бесплатно, штраф со второго
+    if (st.recycles++ > 0) addScore(drawCount === 1 ? -100 : -20);
+  }
+  render();
+}
+
+function undo() {
+  if (!history.length || won || autoRunning) return;
+  if (scoring) { scoring = false; }
+  st = history.pop();
+  render();
+}
+
+function checkWin() {
+  if (st.found.every(f => f.length === 13)) {
+    won = true;
+    if (scoring && seconds >= 30) st.score += Math.round(700000 / seconds);
+    document.getElementById('winText').textContent =
+      (scoring ? 'Очки: ' + st.score + '. ' : 'Очки не считались. ') + 'Время: ' + fmt(seconds);
+    setTimeout(() => document.getElementById('overlay').style.display = 'flex', 200);
+  }
+}
+
+const fmt = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+setInterval(() => {
+  if (!started || won) return;
+  seconds++;
+  if (seconds % 10 === 0) addScore(-2);
+  updateBar();
+}, 1000);
+
+// ---------- Отрисовка ----------
+const board = document.getElementById('board');
+let L = {};
+
+function layout() {
+  const W = board.clientWidth, H = board.clientHeight, pad = 6, gap = Math.max(4, Math.round(W * 0.015));
+  const cw = Math.floor((W - 2 * pad - 6 * gap) / 7), ch = Math.round(cw * 1.4);
+  document.documentElement.style.setProperty('--cw', cw + 'px');
+  document.documentElement.style.setProperty('--ch', ch + 'px');
+  L = { W, H, pad, gap, cw, ch, x: i => pad + i * (cw + gap), top: pad, tabTop: pad + ch + gap * 2 };
+}
+
+function cardEl(c, x, y, z, data) {
+  const d = document.createElement('div');
+  d.className = 'card ' + (c.up ? (isRed(c) ? 'red' : 'black') : 'back');
+  d.style.left = x + 'px'; d.style.top = y + 'px'; d.style.zIndex = z;
+  if (c.up) d.innerHTML = `<span class="c">${RANKS[c.r]}${SUITS[c.s]}</span><span class="m">${SUITS[c.s]}</span>`;
+  Object.assign(d.dataset, data);
+  board.appendChild(d);
+  return d;
+}
+function pileEl(x, y, label, data) {
+  const d = document.createElement('div');
+  d.className = 'pile'; d.style.left = x + 'px'; d.style.top = y + 'px'; d.textContent = label;
+  Object.assign(d.dataset, data);
+  board.appendChild(d);
+}
+
+function tabOffsets(col) {
+  let down = L.cw * 0.18, up = L.cw * 0.42;
+  const nd = col.filter(c => !c.up).length, nu = col.length - nd;
+  const avail = L.H - L.tabTop - L.ch - 6;
+  const need = nd * down + Math.max(0, nu - 1) * up;
+  if (need > avail && need > 0) { const k = avail / need; down *= k; up *= k; }
+  return { down, up };
+}
+
+function render() {
+  layout();
+  board.innerHTML = '';
+  // Колода
+  pileEl(L.x(0), L.top, st.stock.length ? '' : '↻', { t: 's' });
+  if (st.stock.length) cardEl(st.stock[st.stock.length - 1], L.x(0), L.top, 1, { t: 's' });
+  // Сброс (в режиме по 3 веером показываем до трёх карт)
+  pileEl(L.x(1), L.top, '', { t: 'w' });
+  const show = drawCount === 3 ? 3 : 1, w = st.waste, from = Math.max(0, w.length - show);
+  for (let k = from; k < w.length; k++)
+    cardEl(w[k], L.x(1) + (k - from) * L.cw * 0.3, L.top, k, { t: 'w', idx: k });
+  // Дом
+  for (let i = 0; i < 4; i++) {
+    pileEl(L.x(3 + i), L.top, 'A', { t: 'f', i });
+    const f = st.found[i];
+    if (f.length) cardEl(f[f.length - 1], L.x(3 + i), L.top, 1, { t: 'f', i, idx: f.length - 1 });
+  }
+  // Стол
+  for (let i = 0; i < 7; i++) {
+    pileEl(L.x(i), L.tabTop, '', { t: 't', i });
+    const col = st.tab[i], o = tabOffsets(col);
+    let y = L.tabTop;
+    col.forEach((c, k) => { cardEl(c, L.x(i), y, k + 1, { t: 't', i, idx: k }); y += c.up ? o.up : o.down; });
+  }
+  updateBar();
+}
+
+function updateBar() {
+  document.getElementById('score').textContent = 'Очки: ' + (scoring ? st.score : '—');
+  document.getElementById('time').textContent = fmt(seconds);
+  document.getElementById('note').textContent = scoring ? '' : 'После отмены хода очки не считаются до новой игры';
+  document.getElementById('undoBtn').disabled = !history.length || won;
+}
+
+// ---------- Ввод: тап и перетаскивание ----------
+let drag = null;
+
+function pileOf(el) {
+  const d = el.dataset, p = { t: d.t };
+  if (d.i !== undefined) p.i = +d.i;
+  return p;
+}
+
+board.addEventListener('pointerdown', e => {
+  if (autoRunning) return;
+  const el = e.target.closest('.card, .pile');
+  if (!el) return;
+  const p = pileOf(el);
+  if (p.t === 's') { clickStock(); return; }
+  if (!el.classList.contains('card') || el.classList.contains('back')) return;
+  const idx = +el.dataset.idx, arr = pileArr(p);
+  if (p.t === 'w' && idx !== arr.length - 1) return;
+  // Карты, которые тащим вместе (для стола — все ниже выбранной)
+  const els = [...board.querySelectorAll('.card')].filter(c =>
+    c.dataset.t === p.t && c.dataset.i === el.dataset.i && +c.dataset.idx >= idx && c.dataset.idx !== undefined);
+  drag = { p, idx, els, x0: e.clientX, y0: e.clientY, moved: false,
+    start: els.map(c => [parseFloat(c.style.left), parseFloat(c.style.top)]) };
+  board.setPointerCapture(e.pointerId);
+});
+
+board.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+  if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+  drag.moved = true;
+  drag.els.forEach((c, k) => {
+    c.classList.add('drag'); c.style.zIndex = 1000 + k;
+    c.style.left = drag.start[k][0] + dx + 'px'; c.style.top = drag.start[k][1] + dy + 'px';
+  });
+});
+
+board.addEventListener('pointerup', e => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (!d.moved) { autoMove(d.p, d.idx); return; }
+  // Куда бросили: по центру перетаскиваемой карты
+  const r = board.getBoundingClientRect(), first = d.els[0];
+  const cx = parseFloat(first.style.left) + L.cw / 2, cy = parseFloat(first.style.top) + L.ch / 2;
+  let dst = null;
+  const col = Math.round((cx - L.pad - L.cw / 2) / (L.cw + L.gap));
+  if (col >= 0 && col < 7) {
+    if (cy >= L.tabTop - L.gap) dst = { t: 't', i: col };
+    else if (col >= 3) dst = { t: 'f', i: col - 3 };
+  }
+  if (!dst || !tryMove(d.p, d.idx, dst)) render();
+});
+
+document.getElementById('newBtn').onclick = () => newGame();
+document.getElementById('winNew').onclick = () => newGame();
+document.getElementById('undoBtn').onclick = () => undo();
+const drawSel = document.getElementById('draw');
+drawSel.onchange = () => {
+  const v = +drawSel.value;
+  if (started && !won && !confirm('Сменить сдачу и начать новую игру?')) { drawSel.value = drawCount; return; }
+  drawCount = v; save('drawCount', v); newGame();
+};
+window.addEventListener('resize', () => render());
+
+drawCount = +load('drawCount', 1) === 3 ? 3 : 1;
+drawSel.value = drawCount;
+newGame();
+</script>
+</body>
+</html>
