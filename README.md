@@ -4,6 +4,7 @@ Android-приложение на Flutter: пасьянс «Косынка» и 
 
 - `lib/klondike/klondike_game.dart` — правила косынки (без интерфейса), тесты в `test/`.
 - `lib/klondike/klondike_page.dart` — игровой экран.
-- `prototype/klondike.html` — HTML-прототип для обсуждения, открывается в браузере.
+- `lib/durak/durak_game.dart` — правила дурака (подкидной и переводной) и боты, `lib/durak/durak_page.dart` — экран.
+- `prototype/klondike.html`, `prototype/durak.html` — HTML-прототипы для обсуждения, открываются в браузере.
 
 Запуск тестов: `flutter test`. Сборка APK: `flutter build apk --release`.
