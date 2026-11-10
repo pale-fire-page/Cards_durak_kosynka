@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'durak/durak_page.dart';
 import 'klondike/klondike_page.dart';
 
 void main() {
@@ -44,7 +45,11 @@ class HomePage extends StatelessWidget {
             child: const Text('Косынка'),
           ),
           const SizedBox(height: 16),
-          FilledButton(style: btn, onPressed: null, child: const Text('Дурак (скоро)')),
+          FilledButton(
+            style: btn,
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DurakPage())),
+            child: const Text('Дурак'),
+          ),
         ]),
       ),
     );
